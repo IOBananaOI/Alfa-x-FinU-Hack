@@ -203,6 +203,6 @@ def fill_start_cluster(test_df):
 
     # predicted_clusters = predicted_clusters.astype('category')
 
-    test_df['start_cluster_month_3'] = predicted_clusters
+    test_df['start_cluster_month_3'] = predicted_clusters.values
 
     return test_df
