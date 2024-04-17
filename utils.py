@@ -5,11 +5,14 @@ import joblib
 
 from sklearn.metrics import roc_auc_score
 from sklearn.preprocessing import LabelEncoder
-from sklearn.model_selection import StratifiedKFold
 
 
 def weighted_roc_auc(y_true, y_pred, labels):
-    cluster_weights = pd.read_excel("../data/cluster_weights.xlsx").set_index("cluster")
+    """
+    Взвешенный roc_auc
+    """
+
+    cluster_weights = pd.read_excel("data/cluster_weights.xlsx").set_index("cluster")
     weights_dict = cluster_weights["unnorm_weight"].to_dict()
 
     unnorm_weights = np.array([weights_dict[label] for label in labels])
@@ -65,6 +68,7 @@ def fill_na_by_start_cluster(df, for_num='mean', for_object='mode'):
 
     result_df = pd.concat([no_object_df, object_df], axis=1)
     result_df.reset_index(drop=True, inplace=True)
+    
     return result_df
 
 
@@ -80,41 +84,23 @@ def fill_na(df, for_num='mean', for_object='mode'):
     if for_num == 'mean':
         values = no_object_df.mean()
         no_object_df = no_object_df.fillna(values)
-
-    if for_num == 'mode':
-        values = no_object_df.mode().iloc[0]
-        no_object_df = no_object_df.fillna(values)
-
-    if for_num == 'backfill':
-        no_object_df = no_object_df.fillna(method='backfill')
-
-    if for_num == 'bfill':
-        no_object_df = no_object_df.fillna(method='bfill')
-
-    if for_num == 'ffill':
-        no_object_df = no_object_df.fillna(method='ffill')
+    else:
+        no_object_df = no_object_df.fillna(method=for_num)
 
     if for_object == 'mode':
         values = object_df.mode().iloc[0]
         object_df = object_df.fillna(values)
 
-    if for_object == 'backfill':
-        object_df = object_df.fillna(method='backfill')
-
-    if for_object == 'bfill':
-        object_df = object_df.fillna(method='bfill')
-
-    if for_object == 'ffill':
-        object_df = object_df.fillna(method='ffill')
-
-    if for_num == 'None':
-        no_object_df = no_object_df.fillna('None')
-
-    if for_object == 'None':
+    elif for_object == 'None':
         object_df = object_df.fillna('None')
+    else:
+        object_df = object_df.fillna(method=for_object)
 
-    return no_object_df.reset_index().merge(object_df.reset_index(), left_on='index', right_on='index').drop(
-        columns=['index'])
+    result = no_object_df.reset_index().merge(object_df.reset_index(), left_on='index', right_on='index')
+    
+    result = result.drop(columns=['index'])
+
+    return result
 
 
 def reshape_dataset(df, drop_month_3=True, transform_categories=True):
@@ -149,59 +135,25 @@ def reshape_dataset(df, drop_month_3=True, transform_categories=True):
     return df_pivot
 
 
-def weighted_roc_auc(y_true, y_pred, labels):
-    """
-    Взвешенный roc_auc
-    """
-
-    cluster_weights = pd.read_excel("data/cluster_weights.xlsx").set_index("cluster")
-    weights_dict = cluster_weights["unnorm_weight"].to_dict()
-
-    unnorm_weights = np.array([weights_dict[label] for label in labels])
-    weights = unnorm_weights / unnorm_weights.sum()
-    classes_roc_auc = roc_auc_score(y_true, y_pred, labels=labels,
-                                    multi_class="ovr", average=None)
-    return sum(weights * classes_roc_auc)
-
-
-def validate(X,y,model,n_splits=5): 
-    """ 
-    Валидация модели при помощи различных подходов. 
-    """ 
-    scores=[] 
-    kf = StratifiedKFold(n_splits, shuffle=True, random_state=42) 
-    for train_index, test_index in kf.split(X=X, y=y): 
-        X_train, X_test = X.iloc[train_index], X.iloc[test_index] 
-        y_train, y_test = y.iloc[train_index], y.iloc[test_index] 
-        model.fit(X_train,y_train) 
-        y_pred=model.predict_proba(X_test) 
-        score=weighted_roc_auc(y_test, y_pred, labels=model.classes_) 
-        scores.append(score) 
-    return np.array(scores).mean()
-
-
-
 def fill_start_cluster(test_df):
-    # Get pretrained model
+    # Получаем веса модели
     model = joblib.load('weights/fill_cluster_model_weights.pkl')
 
-    # Select columns from dataframe
+    # Выбираем столбцы датафрейма для предсказаний
     cols = ['start_cluster_month_1', 'start_cluster_month_2']
     prev_clusters = test_df[cols]
 
-    # Transform features to numbers
+    # Кодируем категориальные признаки
     le = LabelEncoder()
     le.fit(prev_clusters['start_cluster_month_1'])
 
     prev_clusters['start_cluster_month_1'] = le.transform(prev_clusters['start_cluster_month_1'])
     prev_clusters['start_cluster_month_2'] = le.transform(prev_clusters['start_cluster_month_2'])
 
-    # Predict clusters for 6th month
+    # Предсказываем start_cluster
     predicted_clusters = model.predict(prev_clusters)
 
     predicted_clusters = pd.Series(le.inverse_transform(predicted_clusters))
-
-    # predicted_clusters = predicted_clusters.astype('category')
 
     test_df['start_cluster_month_3'] = predicted_clusters.values
 
